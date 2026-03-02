@@ -2,7 +2,7 @@ import system.lib.minescript as m
 
 import time, os, traceback, random, winsound, mss, requests, pygetwindow as gw, tempfile, threading
 
-from components.ms_extended import look, get_scoreboard_info
+from components.ms_extended import look, get_tablist_info
 from config import discord_webhook_url  # Needs to be imported from a config.py as a discord_webhook_url variable
 
 # ========== PATHS ==========
@@ -104,7 +104,7 @@ def scoreboard_updater():
     while running:
         try:
             with m.script_loop:
-                data = get_scoreboard_info()
+                data = get_tablist_info()
 
             with scoreboard_lock:
                 scoreboard_cache = data
@@ -477,7 +477,7 @@ def restart_after_evac():
 
         time.sleep(1)
 
-        area = get_scoreboard_info()["area"]
+        area = get_tablist_info()["area"]
         m.log(f"[EVAC_RESTARTER] Current Area: {area}")
 
         if area == "Garden":

@@ -20,8 +20,8 @@ END_KEY = 269  # END Key
 FARM_ITEM = "diamond_axe"  # The Tool that is used for farming (Minecraft ID, not hypixel name)
 FARM_BLOCK = "melon"  # The block/crop that is being farmed
 
-ROW_MIN_Z = -238.68  # Y Coordinate of the Start of a row
-ROW_MAX_Z = 238.68  # Y Coordinate of the Start of a row
+ROW_MIN_Z = -238.7  # Y Coordinate of the Start of a row
+ROW_MAX_Z = 238.7  # Y Coordinate of the Start of a row
 
 ROW_MAX_X = -55.3  # X Coordinate of the last row
 ROW_MIN_X = -88.3  # X Coordinate of the beginning Row
@@ -294,6 +294,11 @@ def get_direction(x: float):
     )
     return direction, snapped_x
 
+def at_wall(direction, z):
+    if direction == "right":
+        return z >= ROW_MAX_Z - 0.03
+    else:
+        return z <= ROW_MIN_Z + 0.03
 
 def at_field_end(x, z) -> bool:
     return abs(x - ROW_MAX_X) < TOLERANCE and abs(z - ROW_MAX_Z) < TOLERANCE
@@ -559,6 +564,7 @@ while running:
         now = time.time()
         x, y, z = m.player_position()
         direction, snapped_x = get_direction(x)
+        at_wall_now = at_wall(direction, z)
 
         if start_row_x is None:
             start_row_x = snapped_x
@@ -571,21 +577,14 @@ while running:
 
         if STATE == "FARM_ROW":
 
-            at_wall = (
-                    (direction == "left" and z <= ROW_MIN_Z + TOLERANCE) or
-                    (direction == "right" and z >= ROW_MAX_Z - TOLERANCE)
-            )
-
-
-
             cur_z = m.player_position()[2]
 
             if LAST_POS != 0:
                 dz = abs(cur_z - LAST_POS)
 
-                log(f"[STUCK-CHECK] at_wall={at_wall} dz={dz:.5f}")
+                log(f"[STUCK-CHECK] at_wall={at_wall_now} dz={dz:.5f}")
 
-                if dz < TOLERANCE and not at_wall:
+                if dz < TOLERANCE and not at_wall_now:
                     log(f"[STUCK-CHECK] IF triggered | cur_z={cur_z:.3f} last_z={LAST_POS:.3f} dz={dz:.5f}")
 
                     if time.time() - last_move_time > 0.1:
@@ -605,12 +604,7 @@ while running:
                 except Exception:
                     pass
 
-            at_wall = (
-                    (direction == "left" and z <= ROW_MIN_Z) or
-                    (direction == "right" and z >= ROW_MAX_Z)
-            )
-
-            if at_wall and row_push_until == 0.0:
+            if at_wall_now and row_push_until == 0.0:
                 push_time = random.uniform(PUSH_MIN, PUSH_MAX)
                 row_push_until = now + push_time
                 log(f"[ROW-PUSH] start until {row_push_until:.3f}")
@@ -637,11 +631,11 @@ while running:
                     pass
                 continue
 
-            if direction == "left" and z > ROW_MIN_Z:
+            if direction == "left" and not at_wall_now:
                 log(f"[MOVE] row left z={z:.3f}")
                 set_move(left=True)
 
-            elif direction == "right" and z < ROW_MAX_Z:
+            elif direction == "right" and not at_wall_now:
                 log(f"[MOVE] row right z={z:.3f}")
                 set_move(right=True)
 

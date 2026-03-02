@@ -5,5 +5,5 @@ It is intended to demonstrate automation concepts, reverse engineering, and clie
 
 Using macros, automation tools, or similar software on servers like Hypixel violates their Terms of Service and can result in permanent bans.
 
-The author does not encourage or support the use of this project on live servers.  
+The author and Contributors do not encourage or support the use of this project on live servers.  
 Any misuse is solely the responsibility of the user.

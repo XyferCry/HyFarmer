@@ -147,7 +147,7 @@ def extract_number(text):
             break
     return num if num else "0"
 
-def get_scoreboard_info():
+def get_tablist_info():
     data = {
         "area": None,
         "server": None,

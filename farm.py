@@ -1,6 +1,6 @@
 import system.lib.minescript as m
 
-import time, os, traceback, random, winsound, mss, requests, pygetwindow as gw, tempfile, threading, asyncio
+import time, os, traceback, random, winsound, mss, requests, pygetwindow as gw, tempfile, threading
 
 from components.ms_extended import look, get_scoreboard_info
 from config import discord_webhook_url  # Needs to be imported from a config.py as a discord_webhook_url variable
@@ -9,8 +9,7 @@ from config import discord_webhook_url  # Needs to be imported from a config.py 
 BASE_DIR = os.path.dirname(__file__)
 LOG_PATH = os.path.join(BASE_DIR, "FarmLog.log")  # File Name in which the logs will be saved
 
-WARN_SOUND_PATH = os.path.join(BASE_DIR, "assets",
-                               "AnvilLand.wav")  # Set this to your Warn sound file path (Default is a relative folder with the sound in it)
+WARN_SOUND_PATH = os.path.join(BASE_DIR, "assets", "AnvilLand.wav")  # Set this to your Warn sound file path (Default is a relative folder with the sound in it)
 
 # ========== CONFIG ==========
 PAUSE_KEY = 320  # Numpad0
@@ -33,7 +32,7 @@ PUSH_MAX = 1.5  # Maximum push Time
 FARM_HEIGHT_Y = 67.875  # The height of walking through the rows
 FARM_HEIGHT_TOL = 0.3  # Small tolerance for float inconsistencies
 
-END_TOL = 0.1  # Small Tolerance to evade float inconsistencies
+TOLERANCE = 0.01  # Small Tolerance to evade float inconsistencies
 
 END_HARD_WAIT = 2.0  # Minimum Wait before warping
 END_EXTRA_MIN = 1.0  # Mininimum Extra Wait before warping
@@ -47,6 +46,8 @@ farm_speed = 265  # Your Speed cap while farming (Use Sundial)
 farm_pet = "Elephant"  # Pet you use while farming (Without Level. Just for example "Elephant")
 
 LAST_POS = 0
+last_move_time = time.time()
+
 webhook_alert = True  # If Alerts should be sent to Webhook
 
 auto_restart_after_evac = True  # If the Script should automatically begin farming again after a Server restart or Limbo Kick
@@ -295,7 +296,7 @@ def get_direction(x: float):
 
 
 def at_field_end(x, z) -> bool:
-    return abs(x - ROW_MAX_X) < END_TOL and abs(z - ROW_MAX_Z) < END_TOL
+    return abs(x - ROW_MAX_X) < TOLERANCE and abs(z - ROW_MAX_Z) < TOLERANCE
 
 
 # ================= ACTIONS =================
@@ -571,20 +572,29 @@ while running:
         if STATE == "FARM_ROW":
 
             at_wall = (
-                    (direction == "left" and z - ROW_MIN_Z < END_TOL) or
-                    (direction == "right" and z - ROW_MAX_Z < END_TOL)
+                    (direction == "left" and z <= ROW_MIN_Z + TOLERANCE) or
+                    (direction == "right" and z >= ROW_MAX_Z - TOLERANCE)
             )
 
+
+
+            cur_z = m.player_position()[2]
+
             if LAST_POS != 0:
+                dz = abs(cur_z - LAST_POS)
 
-                if (LAST_POS == m.player_position()) and not at_wall:
-                    alert("NO MOVEMENT DETECTED !!!!!!!!!!!!!!!!!!!!!!!!!", "default")
+                log(f"[STUCK-CHECK] at_wall={at_wall} dz={dz:.5f}")
+
+                if dz < TOLERANCE and not at_wall:
+                    log(f"[STUCK-CHECK] IF triggered | cur_z={cur_z:.3f} last_z={LAST_POS:.3f} dz={dz:.5f}")
+
+                    if time.time() - last_move_time > 0.1:
+                        alert("NO MOVEMENT DETECTED !!!!!!!!!!!!!!!!!!!!!!!!!", "default", True)
                 else:
-                    # m.echo(f"Last POS: {LAST_POS} Cur Pos: {m.player_position()}")
-                    LAST_POS = m.player_position()
+                    log(f"[STUCK-CHECK] ELSE triggered | cur_z={cur_z:.3f} last_z={LAST_POS:.3f} dz={dz:.5f}")
+                    last_move_time = time.time()
 
-            else:
-                LAST_POS = m.player_position()
+            LAST_POS = cur_z
 
             if start_row_x != snapped_x:
                 start_row_x = snapped_x

@@ -1,8 +1,8 @@
 import system.lib.minescript as m
 
-import time, os, traceback, random, winsound, mss, requests, pygetwindow as gw, tempfile, threading
+import time, os, traceback, random, winsound, mss, requests, pygetwindow as gw, tempfile, threading, asyncio
 
-from components.looker import look
+from components.ms_extended import look, get_scoreboard_info
 from config import discord_webhook_url #Needs to be imported from a config.py as a discord_webhook_url variable
 
 # ========== PATHS ==========
@@ -26,7 +26,7 @@ ROW_MAX_Z = 238.68 #Y Coordinate of the Start of a row
 ROW_MAX_X = -55.3 #X Coordinate of the last row
 ROW_MIN_X = -88.3 #X Coordinate of the beginning Row
 
-PUSH_MIN = 0.10 #Minimum time in seconds the script pushes against a row end to look more human
+PUSH_MIN = 0.1 #Minimum time in seconds the script pushes against a row end to look more human
 PUSH_MAX = 1.5  #Maximum push Time
 
 FARM_HEIGHT_Y = 67.875 #The height of walking through the rows
@@ -42,11 +42,13 @@ WARP_WAIT = 1.0 #Time to wait for warping to load
 POST_WARP_MIN = 0.75 #Minimum Wait after auto warp
 POST_WARP_MAX = 1.0 #Maximum Wait after auto warp
 
+farm_speed = 265 #Your Speed cap while farming (Use Sundial)
+farm_pet = "Elephant" #Pet you use while farming (Without Level. Just for example "Elephant")
+
 LAST_POS = 0
 webhook_alert = True #If Alerts should be sent to Webhook
 
-restart_after_evac = True #If the Script should automatically begin farming again after a Server restart # !! WIP !!
-
+auto_restart_after_evac = True #If the Script should automatically begin farming again after a Server restart or Limbo Kick
 # ========== STATE ==========
 paused = True
 running = True
@@ -59,7 +61,8 @@ STATE = "FARM_ROW"
 row_push_until = 0.0
 start_row_x = None
 
-
+scoreboard_cache = {}
+scoreboard_lock = threading.Lock()
 # ================= LOGGING ================
 with open(LOG_PATH, "w", encoding="utf-8") as f:
     f.write("=== FARM BASE LOG START ===\n")
@@ -87,6 +90,26 @@ def look_async(yaw, pitch, duration=0.4, steps=20):
         args=(yaw, pitch, duration, steps),
         daemon=True
     ).start()
+
+def scoreboard_updater():
+    global scoreboard_cache
+
+    while running:
+        try:
+            with m.script_loop:
+                data = get_scoreboard_info()
+
+            with scoreboard_lock:
+                scoreboard_cache = data
+
+        except Exception as e:
+            log(f"[SCOREBOARD ERROR] {e}")
+
+        time.sleep(0.1)
+
+def get_scoreboard_cached():
+    with scoreboard_lock:
+        return scoreboard_cache.copy()
 
 def alert(alert_msg, sound, send_screenshot):
 
@@ -131,9 +154,36 @@ def player_items():
     return mainhand_item, offhand_item
 
 def failsafe():
+    global farm_speed, farm_pet
     ori = m.player_orientation()
 
     x, y, z = m.player_position()
+
+    scoreboard = get_scoreboard_cached()
+
+    if not scoreboard or scoreboard == {}:
+        return False, "Scoreboard empty", "None"
+
+    if all(value is None for value in scoreboard.values()):
+        return False, "Scoreboard Values all None", "None"
+
+    if not scoreboard.get("area") == "Garden":
+        log(f"""[FAILSAFE] Detected Area not Garden. Scoreboard Info
+{scoreboard}
+""")
+        return True, "Area not Garden", "default"
+
+    if not scoreboard.get("speed") == farm_speed:
+        log(f"""[FAILSAFE] Detected Speed not being {farm_speed}. Scoreboard Info
+{scoreboard}
+""")
+        return True, f"Speed not {farm_speed}", "default"
+
+    if not scoreboard.get("pet_name") == farm_pet:
+        log(f"""[FAILSAFE] Detected Pet not being {farm_pet}. Scoreboard Info
+{scoreboard}
+""")
+        return True, f"Pet not {farm_pet}", "default"
 
     if not player_items()[0]['item'].split(":")[1] == FARM_ITEM:
         log("[FAILSAFE] Detected not holding Farming Item")
@@ -351,28 +401,79 @@ def on_chat(event):
     msg = event['message']
 
     if "Evacuating" in msg:
-        log("[FAILSAFE] §eEvacuation detected, pausing...")
-        m.echo("[HyFarmer] §eEvacuation detected, pausing...")
-        pause_script = True
 
-        log("Experimental Auto restart after Evacuation")
+        log("[FAILSAFE] §eEvacuation detected")
 
-        if restart_after_evac:
+        if not auto_restart_after_evac:
+            pause_script = True
+
+        else:
             m.echo("[HyFarmer] Warping and restarting after Evacuation")
             warp_and_resume = True
-
         return
 
     if "limbo" in msg:
         log("[FAILSAFE] §eLimbo detected, pausing...")
-        m.echo("[HyFarmer] §eLimbo detected, pausing...")
-        pause_script = True
+
+        if not auto_restart_after_evac:
+            pause_script = True
+
+        else:
+            m.echo("[HyFarmer] Warping and restarting after Evacuation")
+            warp_and_resume = True
         return
 
 
+def restart_after_evac():
+    global warp_and_resume
+    m.log("[EVAC_RESTARTER] Setting warp_and_resume to false")
+    m.log(f"[EVAC_RESTARTER] Currently paused: {paused}")
+    warp_and_resume = False
 
+    m.echo("[HyFarmer] §eEvacuation detected, pausing...")
+
+    if paused:
+        m.log("[EVAC_RESTARTER] Already Paused. No need for pausing")
+    else:
+        m.log("[EVAC_RESTARTER] Pausing for evac")
+        toggle_pause()
+
+    m.echo("[EVAC_RESTARTER] Waiting 5 Seconds")
+    time.sleep(5)
+
+    timeout_count = 0
+
+    while timeout_count < 5:
+        m.log(f"[EVAC_RESTARTER] Warping to Garden (Attempt {timeout_count + 1}/5)")
+        do_warp()
+
+        time.sleep(1)
+
+        area = get_scoreboard_info()["area"]
+        m.log(f"[EVAC_RESTARTER] Current Area: {area}")
+
+        if area == "Garden":
+            m.echo("[EVAC_RESTARTER] Successfully back in Garden. Continuing...")
+            break
+        else:
+            m.log(f"[EVAC_RESTARTER] Not in Garden, retrying...")
+            timeout_count += 1
+    else:
+        m.echo("[EVAC_RESTARTER] Failed to reach Garden after 5 attempts. Aborting.")
+        kill_all_jobs()
+        return
+
+    time.sleep(1)
+
+    m.log(f"[EVAC_RESTARTER] Unpausing in Garden at coords: {m.player_position()}")
+    toggle_pause()
+
+#Listeners and Thread Workers
 m._register_chat_message_listener(on_chat)
 m._register_key_listener(on_key)
+
+log("[SCOREBOARD] Background updater started")
+threading.Thread(target=scoreboard_updater, daemon=True).start()
 
 log("SCRIPT START")
 m.echo("[HyFarmer] Script started in PAUSE mode. Press Numpad0 to start.")
@@ -415,30 +516,16 @@ while running:
                 kill_all_jobs()
                 os._exit(0)
 
+            if k == 334: #numpadPlus
+                warp_and_resume = True
+
         if pause_script:
             toggle_pause()
             pause_script = False
             continue
 
         if warp_and_resume:
-            #following is wip and not fully works
-
-            m.echo("Stopping Inputs")
-            stop_inputs()
-            attack_held = False
-            m.echo("Waiting 1 second")
-            time.sleep(1)
-            m.echo("test hub warp")
-            m.execute("/hub")
-            m.echo("Sleeping 6 seconds")
-            time.sleep(6)
-            m.echo("warp to garden")
-            do_warp()
-            m.echo("sleeping 3 seconds")
-            time.sleep(3)
-
-            pause_script = True
-            warp_and_resume = False
+           restart_after_evac()
 
         if paused:
             time.sleep(0.05)

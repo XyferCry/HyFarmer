@@ -2,12 +2,42 @@ import system.lib.minescript as m
 
 import time, os, traceback, random, winsound, mss, requests, pygetwindow as gw, tempfile, threading
 
-from components.ms_extended import look, get_tablist_info
-from config import discord_webhook_url  # Needs to be imported from a config.py as a discord_webhook_url variable
-
 # ========== PATHS ==========
 BASE_DIR = os.path.dirname(__file__)
 LOG_PATH = os.path.join(BASE_DIR, "FarmLog.log")  # File Name in which the logs will be saved
+config_path = os.path.join(BASE_DIR, "config.py")
+
+components_dir = os.path.join(BASE_DIR, "components")
+ms_file = os.path.join(components_dir, "ms_extended.py")
+
+if not os.path.exists(ms_file):
+    m.echo('Downloading missing Dependency "ms_extended"')
+    os.makedirs(components_dir, exist_ok=True)
+
+    url = "https://raw.githubusercontent.com/XyferCry/HyFarmer/master/components/ms_extended.py"
+
+    try:
+        r = requests.get(url)
+
+        if r.status_code == 200:
+            with open(ms_file, "wb") as f:
+                f.write(r.content)
+        else:
+            m.echo("Failed to download ms_extended Dependency")
+
+    except Exception as e:
+        m.echo(f"Error when downloading missing Dependency ms_extended: {e}")
+
+if not os.path.exists(ms_file):
+    raise Exception("ms_extended1.py missing and couldnt load")
+
+from components.ms_extended import look, get_tablist_info
+
+if not os.path.exists(config_path):
+    with open(config_path, "w") as f:
+        f.write('discord_webhook_url = "put your webhook url here"\n')
+
+from config import discord_webhook_url  # Needs to be imported from a config.py as a discord_webhook_url variable
 
 WARN_SOUND_PATH = os.path.join(BASE_DIR, "assets", "AnvilLand.wav")  # Set this to your Warn sound file path (Default is a relative folder with the sound in it)
 
@@ -43,7 +73,7 @@ POST_WARP_MIN = 0.75  # Minimum Wait after auto warp
 POST_WARP_MAX = 1.0  # Maximum Wait after auto warp
 
 farm_speed = 265  # Your Speed cap while farming (Use Sundial)
-farm_pet = "Elephant"  # Pet you use while farming (Without Level. Just for example "Elephant")
+farm_pet = "Rose Dragon"  # Pet you use while farming (Without Level. Just for example "Elephant")
 
 LAST_POS = 0
 last_move_time = time.time()
@@ -177,20 +207,20 @@ def failsafe():
 
     if not scoreboard.get("area") == "Garden" and not scoreboard.get("area") is None:
         log(f"""[FAILSAFE] Detected Area not Garden. Scoreboard Info
-{scoreboard}
-""")
+    {scoreboard}
+    """)
         return True, "Area not Garden", "default"
 
     if not scoreboard.get("speed") == farm_speed and not scoreboard.get("speed") is None:
         log(f"""[FAILSAFE] Detected Speed not being {farm_speed}. Scoreboard Info
-{scoreboard}
-""")
+    {scoreboard}
+    """)
         return True, f"Speed not {farm_speed}", "default"
 
     if not scoreboard.get("pet_name") == farm_pet and not scoreboard.get("pet_name") == None:
         log(f"""[FAILSAFE] Detected Pet not being {farm_pet}. Scoreboard Info
-{scoreboard}
-""")
+    {scoreboard}
+    """)
         return True, f"Pet not {farm_pet}", "default"
 
     if not player_items()[0]['item'].split(":")[1] == FARM_ITEM:
@@ -250,6 +280,10 @@ def webhook_is_valid():
         log('[WEBHOOK] Webhook url is ""')
         return False
 
+    elif discord_webhook_url == "put your webhook url here":
+        log('[WEBHOOK] Webhook url is auto generated Place Holder')
+        return False
+
     elif not discord_webhook_url.startswith("https://discordapp.com/api/webhooks/"):
         log('[WEBHOOK] Webhook url doesnt have the proper Format')
         return False
@@ -294,11 +328,13 @@ def get_direction(x: float):
     )
     return direction, snapped_x
 
+
 def at_wall(direction, z):
     if direction == "right":
         return z >= ROW_MAX_Z - 0.03
     else:
         return z <= ROW_MIN_Z + 0.03
+
 
 def at_field_end(x, z) -> bool:
     return abs(x - ROW_MAX_X) < TOLERANCE and abs(z - ROW_MAX_Z) < TOLERANCE

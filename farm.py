@@ -93,6 +93,12 @@ STATE = "FARM_ROW"
 row_push_until = 0.0
 start_row_x = None
 
+last_resume_time = 0
+
+last_item_change_time = time.time()
+last_total = 0
+inv_running = True
+
 scoreboard_cache = {}
 scoreboard_lock = threading.Lock()
 # ================= LOGGING ================
@@ -193,6 +199,37 @@ def player_items():
 
     return mainhand_item, offhand_item
 
+def get_total_items():
+    inv = m.player_inventory()
+
+    total = 0
+    for item in inv:
+        if item is not None:
+            total += item.get("count", 0)
+
+    return total
+
+def inventory_watcher():
+    global last_total, last_item_change_time
+
+    while inv_running:
+        try:
+            inv = m.player_inventory()
+
+            total = 0
+            for item in inv:
+                if item:
+                    total += item.count
+
+            # WICHTIG: nur reset wenn sich was geändert hat (egal ob + oder -)
+            if total != last_total:
+                last_total = total
+                last_item_change_time = time.time()
+
+        except Exception as e:
+            log(f"[INV ERROR] {e}")
+
+        time.sleep(0.5)
 
 def failsafe():
     global farm_speed, farm_pet
@@ -211,7 +248,7 @@ def failsafe():
     """)
         return True, "Area not Garden", "default"
 
-    if not scoreboard.get("speed") == farm_speed and not scoreboard.get("speed") is None:
+    if not (scoreboard.get("speed") == farm_speed and not scoreboard.get("speed") is None) and not time.time() - last_resume_time < 5:
         log(f"""[FAILSAFE] Detected Speed not being {farm_speed}. Scoreboard Info
     {scoreboard}
     """)
@@ -269,6 +306,7 @@ def webhook(content, send_screenshot=False):
         )
 
     threading.Thread(target=worker, daemon=True).start()
+
 
 
 def webhook_is_valid():
@@ -356,7 +394,7 @@ def ensure_attack():
 
 
 def toggle_pause():
-    global paused, attack_held
+    global paused, attack_held, last_resume_time, last_item_change_time
 
     if not paused:
         paused = True
@@ -412,8 +450,11 @@ def toggle_pause():
     paused = False
     ensure_attack()
     log("[PAUSE] RESUME (attack locked)")
+    last_resume_time = time.time()
+    last_item_change_time = time.time()
     try:
         m.echo("[HyFarmer] Resumed")
+
     except Exception:
         pass
 
@@ -537,8 +578,13 @@ def restart_after_evac():
 m._register_chat_message_listener(on_chat)
 m._register_key_listener(on_key)
 
-log("[SCOREBOARD] Background updater started")
+
 threading.Thread(target=scoreboard_updater, daemon=True).start()
+log("[SCOREBOARD] Background updater started")
+
+
+threading.Thread(target=inventory_watcher, daemon=True).start()
+log("[INVENTORY] Background updater started")
 
 log("SCRIPT START")
 m.echo("[HyFarmer] Script started in PAUSE mode. Press Numpad0 to start.")
@@ -612,6 +658,9 @@ while running:
             alert(failsafe_result[1], failsafe_result[2], True)
 
         if STATE == "FARM_ROW":
+
+            if time.time() - last_item_change_time > 2:
+                alert("No inventory change for 2s", "default", True)
 
             cur_z = m.player_position()[2]
 
